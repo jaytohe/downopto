@@ -8,5 +8,11 @@ Based on [Panopto-DL](https://greasyfork.org/en/scripts/416679-panopto-dl).
 - Preserves the original uploaded filename.
 - Does not open a new tab. Downloads the video while staying in same page.
 
-## Coming Soon
-- Bulk Download Functionality.
+## TODO
+- ~~Bulk Download Functionality.~~ Done. However, it is sequential.*
+- Add ability to bulk download 2 or more videos concurrently for faster download.
+- Fix terrible CSS. Hate dealing with CSS.
+- Add "Cancel Download" button.
+
+\*At first, it downloaded __everything__ in parallel. That is a network hog so switched to sequential approach.
+Best solution is 2nd TODO point.
