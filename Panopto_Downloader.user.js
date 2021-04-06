@@ -4,24 +4,29 @@
 // @version      1.1
 // @description  Adds a download button to Panopto videos.
 // @author       jaytohe
+// @require      https://cdn.jsdelivr.net/npm/axios@0.21.1/dist/axios.min.js
 // @match        https://*.panopto.eu/Panopto/Pages/Viewer.aspx?id=*
 // @match        https://*.panopto.eu/Panopto/Pages/Sessions/List.aspx
 // @grant        GM_addStyle
 // ==/UserScript==
 
-function downloadVideo(url, savename, mimetype) {
+function downloadVideo(video, savename, mimetype, single=false) {
+    const url = video.url;
     console.log(`Init video dl : ${url}`);
-    fetch(url, {
-        headers: new Headers({
+    return axios.get(url, {
+        headers: {
             'Origin': location.origin
-        }),
-        mode: 'cors'
-    }).then(function(response) {
-        if (!response.ok) {
-            return Promise.reject(new Error("Failed to dl "+url));
+        },
+        responseType: 'blob',
+        onDownloadProgress: function(progressEvent) {
+            const percentage = Math.round(
+                progressEvent.loaded / progressEvent.total * 100
+            );
+            (!single) ? setProgress(video.id, savename, percentage): setProgress(video.id, 'Fetching', percentage);
         }
-        return response.blob();
-    }).then(function(blob) {
+    })
+    .then(function(response) {
+        const blob = response.data;
         const blob_url = URL.createObjectURL(blob, {
             type: mimetype
         });
@@ -34,9 +39,16 @@ function downloadVideo(url, savename, mimetype) {
         tmp.click();
         tmp.remove();
         return Promise.resolve();
+    })
+    .catch(function(error) {
+        return Promise.reject(new Error(`DL failed with msg : ${error.message}`));
     });
 }
 
+function setProgress(id, savename, per) {
+    const progress = document.getElementById(id);
+    progress.innerHTML = (per === 100) ? "" :`${savename} : ${per}%`;
+}
 
 function ViewerPageHandler() {
   const link = document.querySelector("meta[name^='twitter:player:stream']").content;
@@ -54,7 +66,7 @@ function ViewerPageHandler() {
   const bar = document.createElement('p');
   bar.id = "dl_progress";
   dl_btn.addEventListener("click", function() {
-      downloadVideo(link, name, mimetype);
+      downloadVideo({url: link, id: bar.id}, name, mimetype, true);
   }, false);
 
   btnNode.appendChild(bar);
@@ -91,13 +103,18 @@ function onLecturesListBtnClick() {
     }
     return;
     */
-    videoIDS.reduce(function(previousVideoPromise, video) {
+    for( const obj of videoIDS) {
+        const t = document.createElement("p");
+        t.setAttribute("id", obj.id);
+        document.body.appendChild(t);
+    }
+
+    videoIDS.reduce(function(previousVideoPromise, video) { //sequentially service promises.
         const source = constructDownloadURL(video.id);
         return previousVideoPromise
                .catch(function(err) {console.log(err.message);})
-               .then(function() {
-            return downloadVideo(source, video.name, 'video/mp4');
-        });
+               .then(function() {return downloadVideo({url: source, id: video.id}, video.name, 'video/mp4')}); //COMMENT OUT THIS LINE AND UNCOMMENT NEXT ONE
+        //.then(downloadVideo({url: source, id: video.id}, video.name, 'video/mp4'));FOR PARALLEL DOWNLOADING.
     }, Promise.resolve());
 }
 
