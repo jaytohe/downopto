@@ -7,6 +7,7 @@ Based on [Panopto-DL](https://greasyfork.org/en/scripts/416679-panopto-dl).
 ## Improvements over Panopto-DL:
 - Preserves the original uploaded filename.
 - Does not open a new tab. Downloads the video while staying in same page.
+- Bulk Download Functionality. Allows you to download all videos from a folder (List.aspx links)
 
 ## TODO
 - ~~Bulk Download Functionality.~~ Done. However, it is sequential.*
