@@ -1,73 +1,44 @@
 // ==UserScript==
 // @name         Panopto Video Downloader
 // @namespace    http://github.com/jaytohe/
-// @version      1.0
+// @version      1.1
 // @description  Adds a download button to Panopto videos.
 // @author       jaytohe
 // @match        https://*.panopto.eu/Panopto/Pages/Viewer.aspx?id=*
+// @match        https://*.panopto.eu/Panopto/Pages/Sessions/List.aspx
 // @grant        GM_addStyle
 // ==/UserScript==
 
-async function downloadVideo(url, savename, mimetype) {
-    const response = await fetch(url, {
+function downloadVideo(url, savename, mimetype) {
+    console.log(`Init video dl : ${url}`);
+    fetch(url, {
         headers: new Headers({
             'Origin': location.origin
         }),
         mode: 'cors'
-    });
-
-    // get reader superclass obj
-    const reader = response.body.getReader();
-    
-    //get length of the video.
-    const contentLength = +response.headers.get('Content-Length');
-
-    const progress = document.getElementById("dl_progress");
-
-    let receivedLength = 0; // number of raw bytes received.
-    let chunks = []; // array of received binary chunks (comprises the body).
-
-    // infinite loop while the body is downloading
-    while (true) {
-        // done is true for the last chunk
-        // value is Uint8Array of the chunk bytes
-        const {
-            done,
-            value
-        } = await reader.read();
-
-        if (done) {
-            progress.innerHTML = '';
-            break;
+    }).then(function(response) {
+        if (!response.ok) {
+            return Promise.reject(new Error("Failed to dl "+url));
         }
-        chunks.push(value); //push raw byte to chunks.
-        receivedLength += value.length;
-        let percentage = Math.round(receivedLength / contentLength * 100);
-        progress.innerHTML = `Downloading : ${percentage}%`; //show dl percent to user.
-    }
+        return response.blob();
+    }).then(function(blob) {
+        const blob_url = URL.createObjectURL(blob, {
+            type: mimetype
+        });
 
-    // Concatenate chunks into single Uint8Array.
-    let chunksAll = new Uint8Array(receivedLength);
-    let position = 0;
-    for (let chunk of chunks) {
-        chunksAll.set(chunk, position);
-        position += chunk.length;
-    }
-
-    const blob_url = URL.createObjectURL(new Blob([chunksAll.buffer], {
-        type: mimetype
-    })); //instantiate a blob from the chunksAll raw bytes array.
-
-    //Create hidden anchor and click it to download blob vid.
-    const tmp = document.createElement('a');
-    tmp.href = blob_url;
-    tmp.download = savename || ''; //set the filename.
-    document.body.appendChild(tmp);
-    tmp.click();
-    tmp.remove();
+        //Create hidden anchor and click it to download blob vid.
+        const tmp = document.createElement('a');
+        tmp.href = blob_url;
+        tmp.download = savename || ''; //set the filename.
+        document.body.appendChild(tmp);
+        tmp.click();
+        tmp.remove();
+        return Promise.resolve();
+    });
 }
 
-(function () {
+
+function ViewerPageHandler() {
   const link = document.querySelector("meta[name^='twitter:player:stream']").content;
   const name = document.querySelector("meta[property^='og:title']").content;
   const mimetype = document.querySelector("meta[property^='og:video:type']").content;
@@ -85,16 +56,100 @@ async function downloadVideo(url, savename, mimetype) {
   dl_btn.addEventListener("click", function() {
       downloadVideo(link, name, mimetype);
   }, false);
-  
+
   btnNode.appendChild(bar);
   btnNode.appendChild(dl_btn);
   document.body.appendChild(btnNode);
+}
+
+function constructDownloadURL(video_id) {
+    //TODO: Fix Code URL Repeat
+    let url = window.location.href;
+    url = url.substr(0, url.indexOf('panopto.eu')+10);
+
+    return url + `/Panopto/Podcast/Social/${video_id}.mp4?mediaTargetType=videoPodcast`;
+}
+
+function onLecturesListBtnClick() {
+    console.log("called lecturesList");
+    /*
+    *"https://uniofbath.cloud.panopto.eu/Panopto/Podcast/Social/e4…7c6a-40f0-b239-acf600ce3273.mp4?mediaTargetType=videoPodcast"
+    *
+    */
+    const LecturesList = document.querySelectorAll("table[id^=detailsTable] tr[draggable='false']");
+    //console.log(LecturesList);
+    const videoIDS = [];
+    for (const row of LecturesList) {
+        const filename = row.querySelector("span[class='detail-title']").innerText;
+        videoIDS.push({"id": row.id, "name": filename});
+    }
+    /*
+    console.log(videoIDS);
+
+    for (let obj of videoIDS) {
+        console.log(constructDownloadURL(obj.id));
+    }
+    return;
+    */
+    videoIDS.reduce(function(previousVideoPromise, video) {
+        const source = constructDownloadURL(video.id);
+        return previousVideoPromise
+               .catch(function(err) {console.log(err.message);})
+               .then(function() {
+            return downloadVideo(source, video.name, 'video/mp4');
+        });
+    }, Promise.resolve());
+}
+
+function LecturesListHandler() {
+    const btnNode = document.createElement('div');
+    btnNode.setAttribute('id', 'pdl-container');
+    const dl_btn = document.createElement('button');
+    dl_btn.id = 'pdl-btn';
+    dl_btn.innerHTML = "Download All";
+    btnNode.appendChild(dl_btn);
+    document.body.appendChild(btnNode);
+    dl_btn.addEventListener("click", function() {
+      onLecturesListBtnClick();
+  }, false);
+
+}
+
+function scriptMode() { //re-checks if we are on single lecture page or not.
+    //Unfortunately, there's no way to find which specific match pattern called the script.
+    //So we need to re-check.
+    const folderURL = /^https:\/\/(\w+\.)+panopto\.eu\/Panopto\/Pages\/Sessions\/List\.aspx$/;
+    const lecURL = /^https:\/\/(\w+\.)+panopto\.eu\/Panopto\/Pages\/Viewer\.aspx\?id=.+$/;
+    let url = window.location.href;
+    url = url.substr(0, url.indexOf('#')) || url;
+    if (lecURL.test(url)) {
+        return 0;
+    }
+    else if (folderURL.test(url)) {
+        return 1;
+    }
+    return -1;
+
+}
+
+(function () {
+    switch(scriptMode()) {
+        case 0:
+            ViewerPageHandler();
+            break;
+        case 1:
+            LecturesListHandler();
+            break;
+        default:
+            return;
+    }
+
 })();
 
 GM_addStyle(`
     #pdl-container {
         position:               absolute;
-        bottom:                 5px;
+        bottom:                 50px;
         left:                   5px;
         opacity:                0.8;
         z-index:                1100;
