@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Panopto Video Downloader
 // @namespace    http://github.com/jaytohe/
-// @version      1.1
+// @version      1.2
 // @description  Adds a download button to Panopto videos.
 // @author       jaytohe
 // @require      https://cdn.jsdelivr.net/npm/axios@0.21.1/dist/axios.min.js
@@ -10,25 +10,27 @@
 // @grant        GM_addStyle
 // ==/UserScript==
 
-function downloadVideo(video, savename, mimetype, single=false) {
-    const url = video.url;
+//Global Vars
+
+//Coordinates for download, progress bar elements.
+const dl_container_pos = {left: 5, bottom: 20};
+const downopto_bar_container_pos = {bottom: 60};
+const downopto_bar_pos = {width: 97};
+
+function downloadVideo(url, savename, mimetype) {
     console.log(`Init video dl : ${url}`);
+    setProgressBarVisibility(true);
     return axios.get(url, {
-        headers: {
-            'Origin': location.origin
-        },
         responseType: 'blob',
         onDownloadProgress: function(progressEvent) {
-            const percentage = Math.round(
-                progressEvent.loaded / progressEvent.total * 100
-            );
-            (!single) ? setProgress(video.id, savename, percentage): setProgress(video.id, 'Fetching', percentage);
+          const percentage = Math.round(progressEvent.loaded / progressEvent.total * 100);
+          setProgressBarValue(percentage);
         }
     })
     .then(function(response) {
         const blob = response.data;
         const blob_url = URL.createObjectURL(blob, {
-            type: mimetype
+          type: mimetype
         });
 
         //Create hidden anchor and click it to download blob vid.
@@ -45,89 +47,71 @@ function downloadVideo(video, savename, mimetype, single=false) {
     });
 }
 
-function setProgress(id, savename, per) {
-    const progress = document.getElementById(id);
-    progress.innerHTML = (per === 100) ? "" :`${savename} : ${per}%`;
-}
-
-function ViewerPageHandler() {
-  const link = document.querySelector("meta[name^='twitter:player:stream']").content;
-  const name = document.querySelector("meta[property^='og:title']").content;
-  const mimetype = document.querySelector("meta[property^='og:video:type']").content;
-  const btnNode = document.createElement('div');
-  btnNode.setAttribute('id', 'pdl-container');
-
-  //DL Button
-  const dl_btn = document.createElement('button');
-  dl_btn.id = 'pdl-btn';
-  dl_btn.innerHTML = "Download";
-
-  //DL Progress report.
-  const bar = document.createElement('p');
-  bar.id = "dl_progress";
-  dl_btn.addEventListener("click", function() {
-      downloadVideo({url: link, id: bar.id}, name, mimetype, true);
-  }, false);
-
-  btnNode.appendChild(bar);
-  btnNode.appendChild(dl_btn);
-  document.body.appendChild(btnNode);
-}
-
 function constructDownloadURL(video_id) {
-    //TODO: Fix Code URL Repeat
     let url = window.location.href;
     url = url.substr(0, url.indexOf('panopto.eu')+10);
 
     return url + `/Panopto/Podcast/Social/${video_id}.mp4?mediaTargetType=videoPodcast`;
 }
 
-function onLecturesListBtnClick() {
+function LecturesListHandler() { //handles scriptMode =1
+
+  //Fix coordinates of download button and progress bar.
+  dl_container_pos.left = 17;
+  dl_container_pos.bottom = 40;
+  downopto_bar_container_pos.bottom = 110;
+  downopto_bar_pos.width = 125;
+
+  //Register event listener of dl button.
+  createDownloadButton("Download All").addEventListener("click", function() {
+      onLecturesListBtnClick();
+  }, false);
+
+  //Create the two progress bars.
+  // One for the individual video download progress.
+  // Second for how many videos have been downloaded so far.
+  createDownloadProgressBar();
+  createDownloadProgressBar('downopto-batch-bar');
+}
+function onLecturesListBtnClick() { //handles the dl btn click when scriptMode = 1.
     console.log("called lecturesList");
-    /*
-    *"https://uniofbath.cloud.panopto.eu/Panopto/Podcast/Social/e4…7c6a-40f0-b239-acf600ce3273.mp4?mediaTargetType=videoPodcast"
-    *
-    */
-    const LecturesList = document.querySelectorAll("table[id^=detailsTable] tr[draggable='false']");
-    //console.log(LecturesList);
-    const videoIDS = [];
+    const LecturesList = document.querySelectorAll("table[id^=detailsTable] tr[draggable='false']"); //get tr rows of all visible videos.
+    const videoIDS = []; //holds the id and the name for each video in LecturesList.
     for (const row of LecturesList) {
-        const filename = row.querySelector("span[class='detail-title']").innerText;
+        const filename = row.querySelector("span[class='detail-title']").innerText; //extract the video's name from the row.
         videoIDS.push({"id": row.id, "name": filename});
     }
-    /*
-    console.log(videoIDS);
-
-    for (let obj of videoIDS) {
-        console.log(constructDownloadURL(obj.id));
-    }
-    return;
-    */
-    for( const obj of videoIDS) {
-        const t = document.createElement("p");
-        t.setAttribute("id", obj.id);
-        document.body.appendChild(t);
-    }
-
+    let videos_dled = 0; //keep track of how many vids have been downloaded.
     videoIDS.reduce(function(previousVideoPromise, video) { //sequentially service promises.
         const source = constructDownloadURL(video.id);
+        const batch_progress_bar = document.getElementById("downopto-batch-bar");
         return previousVideoPromise
-               .catch(function(err) {console.log(err.message);})
-               .then(function() {return downloadVideo({url: source, id: video.id}, video.name, 'video/mp4')}); //COMMENT OUT THIS LINE AND UNCOMMENT NEXT ONE
-        //.then(downloadVideo({url: source, id: video.id}, video.name, 'video/mp4'));FOR PARALLEL DOWNLOADING.
-    }, Promise.resolve());
+               .catch(function(err) {
+                 console.log(err.message); //log dl error in case of Promise.reject
+                 videos_dled = (videos_dled < 0) ? 0 : videos_dled - 1; //if error in download, decrement videos_dled.
+               })
+               .then(function() {
+                 return downloadVideo(source, video.name, 'video/mp4').then(function() { //mimetype hardcoded to make my life easier.
+                   //After successful download:
+                   videos_dled += 1;
+                   batch_progress_bar.setAttribute(
+                     'value',
+                     Math.round(videos_dled / videoIDS.length * 100) //Update second "videos downloaded thus far" progress bar.
+                   );
+                 })
+               });
+
+    }, Promise.resolve()); //initial accumulator value to set Promise type.
 }
 
-function LecturesListHandler() {
-    const btnNode = document.createElement('div');
-    btnNode.setAttribute('id', 'pdl-container');
-    const dl_btn = document.createElement('button');
-    dl_btn.id = 'pdl-btn';
-    dl_btn.innerHTML = "Download All";
-    btnNode.appendChild(dl_btn);
-    document.body.appendChild(btnNode);
-    dl_btn.addEventListener("click", function() {
-      onLecturesListBtnClick();
+function ViewerPageHandler() { //handles scriptMode = 0
+  const link = document.querySelector("meta[name^='twitter:player:stream']").content; //get video url
+  const name = document.querySelector("meta[property^='og:title']").content; //get video's name
+  const mimetype = document.querySelector("meta[property^='og:video:type']").content; //get video's mimetype
+  const button = createDownloadButton("Download");
+  createDownloadProgressBar();
+  button.addEventListener("click", function() {
+      downloadVideo(link, name, mimetype);
   }, false);
 
 }
@@ -140,15 +124,17 @@ function scriptMode() { //re-checks if we are on single lecture page or not.
     let url = window.location.href;
     url = url.substr(0, url.indexOf('#')) || url;
     if (lecURL.test(url)) {
-        return 0;
+        return 0; // 0 indicates signle video download mode (Viewer.aspx page)
     }
-    else if (folderURL.test(url)) {
+    else if (folderURL.test(url)) { // 1 indicates Bulk Download Mode (List.aspx page)
         return 1;
     }
     return -1;
 
 }
 
+
+//MAIN FUNCTION.
 (function () {
     switch(scriptMode()) {
         case 0:
@@ -163,21 +149,85 @@ function scriptMode() { //re-checks if we are on single lecture page or not.
 
 })();
 
+
+//HTML, CSS functions
+function createDownloadButton(btn_txt) {
+  const btnNode = document.createElement('div');
+  const dl_btn = document.createElement('button');
+  btnNode.setAttribute('id', 'pdl-container');
+  dl_btn.id = 'pdl-btn';
+  dl_btn.innerHTML = btn_txt;
+  btnNode.appendChild(dl_btn);
+  document.body.appendChild(btnNode);
+  return dl_btn;
+}
+
+function createDownloadProgressBar(bar_id = 'downopto-bar') {
+  const container = document.createElement("div");
+  const bar = document.createElement("progress");
+  container.setAttribute('id', `${bar_id}-container`);
+  bar.setAttribute("max", "100");
+  bar.setAttribute("id", bar_id);
+  container.appendChild(bar);
+  document.body.appendChild(container);
+  setProgressBarVisibility(true, bar_id);
+  setProgressBarValue(0, bar_id);
+}
+
+function setProgressBarVisibility(k, bar_id = 'downopto-bar') {
+  const t = k ? '' : 'none';
+  document.getElementById(bar_id).style.display = t;
+}
+
+function setProgressBarValue(val, bar_id = 'downopto-bar') {
+  document.getElementById(bar_id).setAttribute('value', val);
+}
+
+
+
 GM_addStyle(`
     #pdl-container {
         position:               absolute;
-        bottom:                 50px;
-        left:                   5px;
+        bottom:                 ${dl_container_pos.bottom}px;
+        left:                   ${dl_container_pos.left}px;
         opacity:                0.8;
         z-index:                1100;
     }
-    #pdl-btn {
-        cursor:                 pointer;
-        border:                 none;
-        background:             #008080;
-        font-size:              20px;
-        color:                  white;
-        padding:                5px 5px;
-        text-align:             center;
+
+    #downopto-bar-container {
+      position:               absolute;
+      bottom:                 ${downopto_bar_container_pos.bottom}px;
+      left:                   ${dl_container_pos.left}px;
+      opacity:                0.8;
+      z-index:                1100;
     }
+
+    #downopto-batch-bar-container {
+      position:               absolute;
+      bottom:                 90px;
+      left:                   17px;
+      opacity:                0.8;
+      z-index:                1100;
+    }
+
+    #pdl-btn {
+        cursor: pointer;
+        border: none;
+        background: #008080;
+        font-size:  20px;
+        color:  white;
+        padding: 5px 5px;
+        text-align: center;
+    }
+
+    #downopto-bar {
+      height: 20px;
+      width: ${downopto_bar_pos.width}px;
+    }
+
+    #downopto-batch-bar {
+      height: 10px;
+      width: 125px;
+    }
+
 `);
