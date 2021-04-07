@@ -25,6 +25,7 @@ function downloadVideo(url, savename, mimetype) {
         onDownloadProgress: function(progressEvent) {
           const percentage = Math.round(progressEvent.loaded / progressEvent.total * 100);
           setProgressBarValue(percentage);
+          setProgressText(`Fetching: ${percentage}%`,'downopto-bar');
         }
     })
     .then(function(response) {
@@ -98,6 +99,7 @@ function onLecturesListBtnClick() { //handles the dl btn click when scriptMode =
                      'value',
                      Math.round(videos_dled / videoIDS.length * 100) //Update second "videos downloaded thus far" progress bar.
                    );
+                   setProgressText(`${videos_dled} out of ${videoIDS.length}`,'downopto-batch-bar');
                  })
                });
 
@@ -170,12 +172,23 @@ function createDownloadProgressBar(bar_id = 'downopto-bar') {
   bar.setAttribute("id", bar_id);
   container.appendChild(bar);
   document.body.appendChild(container);
+  createPercentageText(bar_id);
   setProgressBarVisibility(true, bar_id);
   setProgressBarValue(0, bar_id);
 }
 
+function createPercentageText(bar_id = 'downopto-bar') {
+  const container = document.createElement("div");
+  container.setAttribute('id', `${bar_id}-percentage-container`);
+  const s = document.createElement("span");
+  s.setAttribute("id", `${bar_id}-percentage`);
+  s.innerHTML = "";
+  container.appendChild(s);
+  document.body.appendChild(container);
+}
+
 function setProgressBarVisibility(k, bar_id = 'downopto-bar') {
-  const t = k ? '' : 'none';
+  const t = k ? 'block' : 'none';
   document.getElementById(bar_id).style.display = t;
 }
 
@@ -183,31 +196,51 @@ function setProgressBarValue(val, bar_id = 'downopto-bar') {
   document.getElementById(bar_id).setAttribute('value', val);
 }
 
+function setProgressText(val, bar_id) {
+  document.getElementById(bar_id+'-percentage').innerHTML = val;
+}
+
 
 
 GM_addStyle(`
     #pdl-container {
-        position:               absolute;
-        bottom:                 ${dl_container_pos.bottom}px;
-        left:                   ${dl_container_pos.left}px;
-        opacity:                0.8;
-        z-index:                1100;
+        position: absolute;
+        bottom: ${dl_container_pos.bottom}px;
+        left: ${dl_container_pos.left}px;
+        opacity: 0.8;
+        z-index: 1100;
     }
 
     #downopto-bar-container {
-      position:               absolute;
-      bottom:                 ${downopto_bar_container_pos.bottom}px;
-      left:                   ${dl_container_pos.left}px;
-      opacity:                0.8;
-      z-index:                1100;
+      position: absolute;
+      bottom: ${downopto_bar_container_pos.bottom}px;
+      left: ${dl_container_pos.left}px;
+      opacity: 0.8;
+      z-index: 1100;
+    }
+
+    #downopto-bar-percentage-container {
+      position: absolute;
+      bottom: ${downopto_bar_container_pos.bottom}px;
+      left: ${dl_container_pos.left}px;
+      opacity: 0.8;
+      z-index: 1100;
+    }
+
+    #downopto-batch-bar-percentage-container {
+      position: absolute;
+      bottom: 90px;
+      left: 17px;
+      opacity: 0.8;
+      z-index: 1100;
     }
 
     #downopto-batch-bar-container {
-      position:               absolute;
-      bottom:                 90px;
-      left:                   17px;
-      opacity:                0.8;
-      z-index:                1100;
+      position: absolute;
+      bottom: 90px;
+      left: 17px;
+      opacity: 0.8;
+      z-index: 1100;
     }
 
     #pdl-btn {
@@ -226,7 +259,7 @@ GM_addStyle(`
     }
 
     #downopto-batch-bar {
-      height: 10px;
+      height: 12px;
       width: 125px;
     }
 
