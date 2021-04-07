@@ -12,7 +12,7 @@ Based on [Panopto-DL](https://greasyfork.org/en/scripts/416679-panopto-dl).
 ## TODO
 - ~~Bulk Download Functionality.~~ Done. However, it is sequential.*
 - ~~Add ability to bulk download 2 or more videos concurrently for faster download.~~ Scrapped cus CSS gets nasty with more than 2 progress bars and I can't be arsed.
-- Fix terrible CSS. Hate dealing with CSS.
+- ~~Fix terrible CSS. Hate dealing with CSS.~~
 - Add "Cancel Download" button.
 
 \*At first, it downloaded __everything__ in parallel. That is a network hog so switched to sequential approach.
