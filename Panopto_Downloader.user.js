@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Panopto Video Downloader
 // @namespace    http://github.com/jaytohe/
-// @version      1.2
+// @version      1.2.2
 // @description  Adds a download button to Panopto videos.
 // @author       jaytohe
 // @require      https://cdn.jsdelivr.net/npm/axios@0.21.1/dist/axios.min.js
@@ -37,7 +37,7 @@ function downloadVideo(url, savename, mimetype) {
         //Create hidden anchor and click it to download blob vid.
         const tmp = document.createElement('a');
         tmp.href = blob_url;
-        tmp.download = savename || ''; //set the filename.
+        tmp.download = sanitize(savename,'_') || ''; //set the filename.
         document.body.appendChild(tmp);
         tmp.click();
         tmp.remove();
@@ -198,6 +198,28 @@ function setProgressBarValue(val, bar_id = 'downopto-bar') {
 
 function setProgressText(val, bar_id) {
   document.getElementById(bar_id+'-percentage').innerHTML = val;
+}
+
+
+//UTILITY FUNCTIONS.
+
+//Adapted from https://github.com/parshap/node-sanitize-filename/blob/master/index.js
+function sanitize(input, replacement='') {
+const illegalRe = /[\/\?<>\\:\*\|"]/g;
+const controlRe = /[\x00-\x1f\x80-\x9f]/g;
+const reservedRe = /\.+/;
+const windowsReservedRe = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
+const windowsTrailingRe = /[\. ]+$/;
+  if (typeof input !== 'string') {
+    throw new Error('Input must be string');
+  }
+  const sanitized = input
+    .replace(illegalRe, replacement)
+    .replace(controlRe, replacement)
+    .replace(reservedRe, replacement)
+    .replace(windowsReservedRe, replacement)
+    .replace(windowsTrailingRe, replacement);
+  return sanitized;
 }
 
 
