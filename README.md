@@ -1,5 +1,7 @@
 # downopto
 
+Greasyfork Link : https://greasyfork.org/en/scripts/424643-downopto-panopto-video-downloader
+
 Adds a download button to Re:View Panopto to allow one to download lectures. 
 
 Based on [Panopto-DL](https://greasyfork.org/en/scripts/416679-panopto-dl). 
