@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Panopto Video Downloader
+// @name         Downopto - Panopto Video Downloader
 // @namespace    http://github.com/jaytohe/
-// @version      1.2.2
+// @version      1.2.3
 // @description  Adds a download button to Panopto videos.
 // @author       jaytohe
 // @require      https://cdn.jsdelivr.net/npm/axios@0.21.1/dist/axios.min.js
@@ -48,14 +48,44 @@ function downloadVideo(url, savename, mimetype) {
     });
 }
 
-function constructDownloadURL(video_id) {
-    let url = window.location.href;
-    url = url.substr(0, url.indexOf('panopto.eu')+10);
-
-    return url + `/Panopto/Podcast/Social/${video_id}.mp4?mediaTargetType=videoPodcast`;
+function constructDownloadURL(institution_prefix, delivery_id) { //Extract dl link from Embed.aspx page
+     return new Promise(function (resolve, reject) {
+         const embedURL = `https://${institution_prefix}.panopto.eu/Panopto/Pages/Embed.aspx?id=${delivery_id}&v=1&ignoreflash=true`;
+         console.log(embedURL);
+         const xhr = new XMLHttpRequest();
+         xhr.responseType = "document";
+         xhr.withCredentials = true; //use authentication cookies with GET request to simulate logged-in user.
+         xhr.open("GET", embedURL);
+         xhr.onload = function() {
+             if (xhr.status == 200) {
+                 const embed_dom = xhr.response;
+                 const xpath_res = embed_dom.evaluate(
+                     "//script[contains(text(), 'Panopto.Embed.instance')]",
+                     embed_dom,
+                     null,
+                     XPathResult.FIRST_ORDERED_NODE_TYPE, //makes sure we always grab the first matching script tag
+                     null
+                 );
+                 const embed_src_node = xpath_res.singleNodeValue.textContent;
+                 if (embed_src_node != null) {
+                     const lower_offset = embed_src_node.search(/"VideoUrl":/);
+                     if (lower_offset !== -1) {
+                         const upper_offset = embed_src_node.indexOf(',', lower_offset);
+                         const matches = embed_src_node.substring(lower_offset, upper_offset).match(/"(.+)":"(.+)"/); //extract VideoUrl key-value pair
+                         if (matches !== null)
+                             resolve(matches[2].replaceAll(/\\/g, "")); //clean up videoUrl value and return
+                         reject(new Error("Regex failed to find VideoUrl value"));
+                     }
+                     reject(new Error("Unable to find VideoUrl key"));
+                 }
+                 reject(new Error("Unable to find Panopto.Embed.Instance object"));
+             }
+             else reject(new Error(`Got ${xhr.status} status code when trying to fetch Embed.aspx page.`));
+         }
+         xhr.send();
+     });
 }
-
-function LecturesListHandler() { //handles scriptMode =1
+function LecturesListHandler(institution_prefix) { //handles scriptMode =1
 
   //Fix coordinates of download button and progress bar.
   dl_container_pos.left = 17;
@@ -65,7 +95,7 @@ function LecturesListHandler() { //handles scriptMode =1
 
   //Register event listener of dl button.
   createDownloadButton("Download All").addEventListener("click", function() {
-      onLecturesListBtnClick();
+      onLecturesListBtnClick(institution_prefix);
   }, false);
 
   //Create the two progress bars.
@@ -74,7 +104,7 @@ function LecturesListHandler() { //handles scriptMode =1
   createDownloadProgressBar();
   createDownloadProgressBar('downopto-batch-bar');
 }
-function onLecturesListBtnClick() { //handles the dl btn click when scriptMode = 1.
+function onLecturesListBtnClick(institution_prefix) { //handles the dl btn click when scriptMode = 1.
     console.log("called lecturesList");
     const LecturesList = document.querySelectorAll("table[id^=detailsTable] tr[draggable='false']"); //get tr rows of all visible videos.
     const videoIDS = []; //holds the id and the name for each video in LecturesList.
@@ -84,36 +114,36 @@ function onLecturesListBtnClick() { //handles the dl btn click when scriptMode =
     }
     let videos_dled = 0; //keep track of how many vids have been downloaded.
     videoIDS.reduce(function(previousVideoPromise, video) { //sequentially service promises.
-        const source = constructDownloadURL(video.id);
-        const batch_progress_bar = document.getElementById("downopto-batch-bar");
-        return previousVideoPromise
-               .catch(function(err) {
-                 console.log(err.message); //log dl error in case of Promise.reject
-                 videos_dled = (videos_dled < 0) ? 0 : videos_dled - 1; //if error in download, decrement videos_dled.
-               })
-               .then(function() {
-                 return downloadVideo(source, video.name, 'video/mp4').then(function() { //mimetype hardcoded to make my life easier.
-                   //After successful download:
-                   videos_dled += 1;
-                   batch_progress_bar.setAttribute(
-                     'value',
-                     Math.round(videos_dled / videoIDS.length * 100) //Update second "videos downloaded thus far" progress bar.
-                   );
-                   setProgressText(`${videos_dled} out of ${videoIDS.length}`,'downopto-batch-bar');
-                 })
-               });
+            const batch_progress_bar = document.getElementById("downopto-batch-bar");
+            return previousVideoPromise
+                .catch(function(err) {
+                console.log(err.message); //log dl error in case of Promise.reject
+                videos_dled = (videos_dled < 0) ? 0 : videos_dled - 1; //if error in download, decrement videos_dled.
+            }).then(function() {
+                return constructDownloadURL(institution_prefix, video.id).then(function(source) {
+                    return downloadVideo(source, video.name, 'video/mp4').then(function() { //mimetype hardcoded to make my life easier.
+                        //After successful download:
+                        videos_dled += 1;
+                        batch_progress_bar.setAttribute(
+                            'value',
+                            Math.round(videos_dled / videoIDS.length * 100) //Update second "videos downloaded thus far" progress bar.
+                        );
+                        setProgressText(`${videos_dled} out of ${videoIDS.length}`,'downopto-batch-bar');
+                    })
+                });
+            });
 
     }, Promise.resolve()); //initial accumulator value to set Promise type.
 }
 
-function ViewerPageHandler() { //handles scriptMode = 0
-  const link = document.querySelector("meta[name^='twitter:player:stream']").content; //get video url
-  const name = document.querySelector("meta[property^='og:title']").content; //get video's name
-  const mimetype = document.querySelector("meta[property^='og:video:type']").content; //get video's mimetype
+function ViewerPageHandler(institution_prefix, delivery_id) { //handles scriptMode = 0
   const button = createDownloadButton("Download");
   createDownloadProgressBar();
   button.addEventListener("click", function() {
-      downloadVideo(link, name, mimetype);
+      constructDownloadURL(institution_prefix, delivery_id).then(function(link) {
+          const name = document.querySelector("meta[property^='og:title']").content; //get video's name
+          downloadVideo(link, name, "video/mp4");
+      })
   }, false);
 
 }
@@ -121,34 +151,35 @@ function ViewerPageHandler() { //handles scriptMode = 0
 function scriptMode() { //re-checks if we are on single lecture page or not.
     //Unfortunately, there's no way to find which specific match pattern called the script.
     //So we need to re-check.
-    const folderURL = /^https:\/\/(\w+\.)+panopto\.eu\/Panopto\/Pages\/Sessions\/List\.aspx$/;
-    const lecURL = /^https:\/\/(\w+\.)+panopto\.eu\/Panopto\/Pages\/Viewer\.aspx\?id=.+$/;
+
+    const viewRegex = /^https:\/\/([\w.]+)\.panopto\.eu\/Panopto\/Pages\/Viewer\.aspx\?id=(.+)$/;
+    const listRegex = /^https:\/\/([\w.]+)\.panopto\.eu\/Panopto\/Pages\/Sessions\/List\.aspx$/;
     let url = window.location.href;
-    url = url.substr(0, url.indexOf('#')) || url;
-    if (lecURL.test(url)) {
-        return 0; // 0 indicates signle video download mode (Viewer.aspx page)
+    url = url.substring(0, url.indexOf('#')) || url;
+
+    const viewMatches = url.match(viewRegex); //grab institution_prefix and delivery_id
+    if (viewMatches !== null) {
+        return [0, viewMatches[1], viewMatches[2]]; // 0 indicates signle video download mode (Viewer.aspx page)
     }
-    else if (folderURL.test(url)) { // 1 indicates Bulk Download Mode (List.aspx page)
-        return 1;
+    const listMatches = url.match(listRegex); //grab institution_prefix only; delivery_id for each video in list is extracted from the DOM.
+    if (listMatches !== null) { // 1 indicates Bulk Download Mode (List.aspx page)
+        return [1, listMatches[1]];
     }
-    return -1;
+
+    return null;
 
 }
 
 
 //MAIN FUNCTION.
 (function () {
-    switch(scriptMode()) {
-        case 0:
-            ViewerPageHandler();
-            break;
-        case 1:
-            LecturesListHandler();
-            break;
-        default:
-            return;
-    }
-
+    const params = scriptMode();
+    if (params === null)
+        return;
+    if (params[0] === 0)
+        ViewerPageHandler(params[1], params[2]);
+    else if (params[0] === 1)
+        LecturesListHandler(params[1]);
 })();
 
 
