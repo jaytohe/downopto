@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         Downopto - Panopto Video Downloader
 // @namespace    http://github.com/jaytohe/
-// @version      1.2.3
+// @version      1.2.4
 // @description  Adds a download button to Panopto videos.
 // @author       jaytohe
 // @require      https://cdn.jsdelivr.net/npm/axios@0.21.1/dist/axios.min.js
 // @match        https://*.panopto.eu/Panopto/Pages/Viewer.aspx?id=*
 // @match        https://*.panopto.eu/Panopto/Pages/Sessions/List.aspx
+// @match        https://*.panopto.com/Panopto/Pages/Viewer.aspx?id=*
+// @match        https://*.panopto.com/Panopto/Pages/Sessions/List.aspx
 // @grant        GM_addStyle
 // ==/UserScript==
 
@@ -48,9 +50,9 @@ function downloadVideo(url, savename, mimetype) {
     });
 }
 
-function constructDownloadURL(institution_prefix, delivery_id) { //Extract dl link from Embed.aspx page
+function constructDownloadURL(institution_prefix, delivery_id, domain_suffix) { //Extract dl link from Embed.aspx page
      return new Promise(function (resolve, reject) {
-         const embedURL = `https://${institution_prefix}.panopto.eu/Panopto/Pages/Embed.aspx?id=${delivery_id}&v=1&ignoreflash=true`;
+         const embedURL = `https://${institution_prefix}.panopto.${domain_suffix}/Panopto/Pages/Embed.aspx?id=${delivery_id}&v=1&ignoreflash=true`;
          console.log(embedURL);
          const xhr = new XMLHttpRequest();
          xhr.responseType = "document";
@@ -85,7 +87,7 @@ function constructDownloadURL(institution_prefix, delivery_id) { //Extract dl li
          xhr.send();
      });
 }
-function LecturesListHandler(institution_prefix) { //handles scriptMode =1
+function LecturesListHandler(institution_prefix, domain_suffix) { //handles scriptMode =1
 
   //Fix coordinates of download button and progress bar.
   dl_container_pos.left = 17;
@@ -95,7 +97,7 @@ function LecturesListHandler(institution_prefix) { //handles scriptMode =1
 
   //Register event listener of dl button.
   createDownloadButton("Download All").addEventListener("click", function() {
-      onLecturesListBtnClick(institution_prefix);
+      onLecturesListBtnClick(institution_prefix, domain_suffix);
   }, false);
 
   //Create the two progress bars.
@@ -104,7 +106,7 @@ function LecturesListHandler(institution_prefix) { //handles scriptMode =1
   createDownloadProgressBar();
   createDownloadProgressBar('downopto-batch-bar');
 }
-function onLecturesListBtnClick(institution_prefix) { //handles the dl btn click when scriptMode = 1.
+function onLecturesListBtnClick(institution_prefix, domain_suffix) { //handles the dl btn click when scriptMode = 1.
     console.log("called lecturesList");
     const LecturesList = document.querySelectorAll("table[id^=detailsTable] tr[draggable='false']"); //get tr rows of all visible videos.
     const videoIDS = []; //holds the id and the name for each video in LecturesList.
@@ -120,7 +122,7 @@ function onLecturesListBtnClick(institution_prefix) { //handles the dl btn click
                 console.log(err.message); //log dl error in case of Promise.reject
                 videos_dled = (videos_dled < 0) ? 0 : videos_dled - 1; //if error in download, decrement videos_dled.
             }).then(function() {
-                return constructDownloadURL(institution_prefix, video.id).then(function(source) {
+                return constructDownloadURL(institution_prefix, video.id, domain_suffix).then(function(source) {
                     return downloadVideo(source, video.name, 'video/mp4').then(function() { //mimetype hardcoded to make my life easier.
                         //After successful download:
                         videos_dled += 1;
@@ -136,11 +138,11 @@ function onLecturesListBtnClick(institution_prefix) { //handles the dl btn click
     }, Promise.resolve()); //initial accumulator value to set Promise type.
 }
 
-function ViewerPageHandler(institution_prefix, delivery_id) { //handles scriptMode = 0
+function ViewerPageHandler(institution_prefix, domain_suffix, delivery_id) { //handles scriptMode = 0
   const button = createDownloadButton("Download");
   createDownloadProgressBar();
   button.addEventListener("click", function() {
-      constructDownloadURL(institution_prefix, delivery_id).then(function(link) {
+      constructDownloadURL(institution_prefix, delivery_id, domain_suffix).then(function(link) {
           const name = document.querySelector("meta[property^='og:title']").content; //get video's name
           downloadVideo(link, name, "video/mp4");
       })
@@ -152,18 +154,18 @@ function scriptMode() { //re-checks if we are on single lecture page or not.
     //Unfortunately, there's no way to find which specific match pattern called the script.
     //So we need to re-check.
 
-    const viewRegex = /^https:\/\/([\w.]+)\.panopto\.eu\/Panopto\/Pages\/Viewer\.aspx\?id=(.+)$/;
-    const listRegex = /^https:\/\/([\w.]+)\.panopto\.eu\/Panopto\/Pages\/Sessions\/List\.aspx$/;
+    const viewRegex = /^https:\/\/([\w.]+)\.panopto\.(eu|com)\/Panopto\/Pages\/Viewer\.aspx\?id=(.+)$/;
+    const listRegex = /^https:\/\/([\w.]+)\.panopto\.(eu|com)\/Panopto\/Pages\/Sessions\/List\.aspx$/;
     let url = window.location.href;
     url = url.substring(0, url.indexOf('#')) || url;
 
-    const viewMatches = url.match(viewRegex); //grab institution_prefix and delivery_id
+    const viewMatches = url.match(viewRegex); //grab institution_prefix, domain suffix and delivery_id
     if (viewMatches !== null) {
-        return [0, viewMatches[1], viewMatches[2]]; // 0 indicates signle video download mode (Viewer.aspx page)
+        return [0, viewMatches[1], viewMatches[2], viewMatches[3]]; // 0 indicates signle video download mode (Viewer.aspx page)
     }
-    const listMatches = url.match(listRegex); //grab institution_prefix only; delivery_id for each video in list is extracted from the DOM.
+    const listMatches = url.match(listRegex); //grab institution_prefix and domain_suffix only; delivery_id for each video in list is extracted from the DOM.
     if (listMatches !== null) { // 1 indicates Bulk Download Mode (List.aspx page)
-        return [1, listMatches[1]];
+        return [1, listMatches[1], listMatches[2]];
     }
 
     return null;
@@ -177,9 +179,9 @@ function scriptMode() { //re-checks if we are on single lecture page or not.
     if (params === null)
         return;
     if (params[0] === 0)
-        ViewerPageHandler(params[1], params[2]);
+        ViewerPageHandler(params[1], params[2], params[3]);
     else if (params[0] === 1)
-        LecturesListHandler(params[1]);
+        LecturesListHandler(params[1], params[2]);
 })();
 
 
